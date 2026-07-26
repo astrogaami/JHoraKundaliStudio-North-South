@@ -2,11 +2,10 @@
 
 **A single‑file HTML tool for Vedic astrologers** – import data from **Jagannatha Hora (JHora)**, assign positions manually, and export high‑quality South/North Indian chart images ready for publication.
 
-![Screenshot](docs/screenshot.png)
 
 ## 🚀 Try it now
 
-[Live Demo on GitHub Pages](Dual_chart_-_South_-_north-v3i.html)
+[Live Demo: https://lavender-natty-70.tiiny.site/]
 
 ## ✨ Features
 
