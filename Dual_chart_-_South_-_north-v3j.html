@@ -97,6 +97,7 @@ main{flex:1;overflow:auto;padding:10px 14px;display:flex;flex-direction:column;a
     <div class="ha">
       <button class="btn btn-ghost" id="btn-clear">Clear</button>
       <button class="btn btn-amber" id="btn-jhora">⚡ JHora</button>
+      <button class="btn btn-ghost" id="btn-copy-jhora" title="Copy the imported JHora data to clipboard">⧉ Copy</button>
       <button class="btn btn-green" id="btn-dual-png">↓ Dual PNG</button>
       <button class="btn btn-dark" id="btn-es-png">S·PNG</button>
       <button class="btn btn-dark" id="btn-en-png">N·PNG</button>
@@ -271,7 +272,7 @@ const PDEFS=[
   {key:'ketu',    s:'Ke', label:'Ketu',       ppbg:'#E2E8F0',ppfg:'#1E293B'},
 ];
 
-let state={data:{},selectedPlanet:null,degInChart:false,footer:false,swap:false,nakLord:true};
+let state={data:{},selectedPlanet:null,degInChart:false,footer:false,swap:false,nakLord:true,rawJhora:''};
 PDEFS.forEach(p=>state.data[p.key]=null);
 
 const el=id=>document.getElementById(id);
@@ -777,7 +778,7 @@ const closeM=()=>{el('modal').style.display='none';};
 const showErr=msg=>{el('jerr').textContent=msg;el('jerr').style.display='block';el('jtin').classList.add('err');};
 const hideErr=()=>{el('jerr').style.display='none';el('jtin').classList.remove('err');};
 el('btn-jhora').addEventListener('click',openM);
-el('btn-clear').addEventListener('click',()=>{Object.keys(state.data).forEach(k=>state.data[k]=null);state.selectedPlanet=null;buildSidebar();renderAll();});
+el('btn-clear').addEventListener('click',()=>{Object.keys(state.data).forEach(k=>state.data[k]=null);state.selectedPlanet=null;state.rawJhora='';buildSidebar();renderAll();});
 el('mcls').addEventListener('click',closeM);el('mcan').addEventListener('click',closeM);
 el('bparse').addEventListener('click',()=>{
   const txt=el('jtin').value;
@@ -798,9 +799,35 @@ el('bparse').addEventListener('click',()=>{
   if(!meta.date && !meta.time && !meta.place){
     showToast('Chart loaded — birth details not in paste (include the JHora header to auto-fill)');
   }
+  state.rawJhora=txt;  // keep the full paste verbatim for the header Copy button
   state.selectedPlanet=null;closeM();buildSidebar();renderAll();
 });
 el('btn-es-png').addEventListener('click',()=>exportPNG('south'));
+el('btn-copy-jhora').addEventListener('click',()=>{
+  const raw=state.rawJhora||'';
+  if(!raw.trim()){showToast('No JHora data yet — import a chart first');return;}
+  const ok=()=>showToast('JHora data copied to clipboard ✓');
+  // Synchronous execCommand copy inside the click gesture — the reliable path
+  // on a local file:// page where the async Clipboard API is blocked. Temp box
+  // sits in-viewport but invisible so the selection actually takes.
+  const g=window.getSelection();const saved=[];
+  try{for(let i=0;i<g.rangeCount;i++)saved.push(g.getRangeAt(i));}catch(e){}
+  const t=document.createElement('textarea');
+  t.value=raw;t.setAttribute('readonly','');
+  t.style.cssText='position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;box-shadow:none;background:transparent;opacity:0;';
+  document.body.appendChild(t);
+  t.focus();t.select();
+  try{t.setSelectionRange(0,raw.length);}catch(e){}
+  let done=false;try{done=document.execCommand('copy');}catch(e){done=false;}
+  document.body.removeChild(t);
+  try{g.removeAllRanges();saved.forEach(r=>g.addRange(r));}catch(e){}
+  if(done){ok();return;}
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(raw).then(ok).catch(()=>showToast('Copy blocked — select the text and copy manually'));
+  }else{
+    showToast('Copy blocked — select the text and copy manually');
+  }
+});
 el('btn-en-png').addEventListener('click',()=>exportPNG('north'));
 el('btn-dual-png').addEventListener('click',exportDualPNG);
 el('modal').addEventListener('click',e=>{if(e.target===el('modal'))closeM();});
