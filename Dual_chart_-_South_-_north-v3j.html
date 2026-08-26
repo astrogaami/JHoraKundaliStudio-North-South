@@ -66,12 +66,13 @@ main{flex:1;overflow:auto;padding:10px 14px;display:flex;flex-direction:column;a
 .degbar{margin-top:12px;background:#fff;border-radius:7px;padding:11px 16px;box-shadow:0 2px 12px rgba(22,21,42,.07);max-width:860px;width:100%;}
 .degbar-title{font-size:8px;font-weight:800;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;}
 .degflow{font-size:16px;line-height:2.0;color:#333;}
-.entry{white-space:nowrap;}
+.entry{white-space:nowrap;margin-right:8px;}
 .e-name{font-weight:700;color:inherit;}
 .e-kar{font-weight:400;color:inherit;opacity:.85;}
 .e-flag{font-weight:400;color:inherit;opacity:.85;text-decoration:underline;text-underline-offset:2px;}
 .e-sep{display:inline-block;width:10px;}
 .e-nak{font-style:italic;}
+.e-naklord{font-size:.68em;font-weight:700;vertical-align:super;line-height:0;opacity:.9;margin-left:1px;}
 .degbar-empty{font-size:10px;color:var(--subtle);font-style:italic;text-align:center;padding:4px 0;}
 .moverlay{position:fixed;inset:0;z-index:50;background:rgba(22,21,42,.55);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px);}
 .mbox{background:#fff;border-radius:11px;width:100%;max-width:480px;overflow:hidden;box-shadow:0 20px 55px rgba(22,21,42,.28);}
@@ -114,6 +115,7 @@ main{flex:1;overflow:auto;padding:10px 14px;display:flex;flex-direction:column;a
       <div class="palette" id="palette" title="Chart color theme"></div>
       <div class="opt-toggle" id="tog-swap" title="Swap chart positions (South ⇄ North)">⇄ Swap</div>
       <div class="opt-toggle" id="tog-deg" title="Show degrees inside chart cells">°Deg</div>
+      <div class="opt-toggle" id="tog-naklord" title="Show nakshatra lord (star lord) as superscript in the summary">★ Star Lord</div>
       <div class="opt-toggle" id="tog-foot" title="Show astrogaami.com footer">Footer</div>
     </div>
   </div>
@@ -189,7 +191,11 @@ const SIGNS=['Aries','Taurus','Gemini','Cancer','Leo','Virgo','Libra','Scorpio',
 const SIGN_S=['Ar','Ta','Ge','Cn','Le','Vi','Li','Sc','Sg','Cp','Aq','Pi'];
 const NAKSHATRAS=['Ashwini','Bharani','Krittika','Rohini','Mrigashira','Ardra','Punarvasu','Pushya','Ashlesha','Magha','P.Phalguni','U.Phalguni','Hasta','Chitra','Swati','Vishakha','Anuradha','Jyeshtha','Mula','P.Ashadha','U.Ashadha','Shravana','Dhanishta','Shatabhisha','P.Bhadra','U.Bhadra','Revati'];
 const NAK_ABBR=['Aswi','Bhar','Krit','Rohi','Mrig','Ardr','Puna','Push','Asre','Magh','PPha','UPha','Hast','Chit','Swat','Visa','Anu','Jye','Mula','PSha','USha','Srav','Dhan','Sata','PBha','UBha','Reva'];
-function nakPada(signIdx,deg){const al=signIdx*30+deg;const ns=360/27;const ni=Math.floor(al/ns)%27;const pd=Math.floor((al%ns)/(ns/4))+1;return{nak:NAKSHATRAS[ni],abbr:NAK_ABBR[ni],pada:pd};}
+/* Vimshottari nakshatra lords (star lords): the 9-lord cycle
+   Ke-Ve-Su-Mo-Ma-Ra-Ju-Sa-Me repeats three times across the 27 stars.
+   Abbreviations match the graha labels used elsewhere in the tool. */
+const NAK_LORD=(()=>{const cyc=['Ke','Ve','Su','Mo','Ma','Ra','Ju','Sa','Me'];const a=[];for(let i=0;i<27;i++)a.push(cyc[i%9]);return a;})();
+function nakPada(signIdx,deg){const al=signIdx*30+deg;const ns=360/27;const ni=Math.floor(al/ns)%27;const pd=Math.floor((al%ns)/(ns/4))+1;return{nak:NAKSHATRAS[ni],abbr:NAK_ABBR[ni],pada:pd,lord:NAK_LORD[ni]};}
 
 /* ══ CLASSICAL ANNOTATION ENGINE ════════════════════════════════════════════
    Computes practitioner flags from sign + degree. All scripturally standard.
@@ -265,7 +271,7 @@ const PDEFS=[
   {key:'ketu',    s:'Ke', label:'Ketu',       ppbg:'#E2E8F0',ppfg:'#1E293B'},
 ];
 
-let state={data:{},selectedPlanet:null,degInChart:false,footer:false,swap:false};
+let state={data:{},selectedPlanet:null,degInChart:false,footer:false,swap:false,nakLord:true};
 PDEFS.forEach(p=>state.data[p.key]=null);
 
 const el=id=>document.getElementById(id);
@@ -281,6 +287,22 @@ function parseJhora(text){
     const toks=line.split(/\s+/);if(toks.length<3)continue;
     const first=toks[0].toLowerCase();
     const key=keyMap[first];if(!key)continue;
+    /* Guard against derived rows whose FIRST word happens to be a body name,
+       e.g. "Rahu Tithi Sphuta" — its first token is "Rahu" but it is NOT the
+       node. In a genuine body row the tokens between the name and its degree
+       number are only markers: '-', '(R)', or a 7-scheme karaka code
+       (AK/AmK/BK/MK/PK/GK/DK). Any other alphabetic word before the first
+       number means this is a Sphuta/derived line, so skip it. */
+    const KARAKA_CODES=new Set(['ak','amk','bk','mk','pk','gk','dk']);
+    let firstNumIdx=-1;
+    for(let i=1;i<toks.length;i++){if(!isNaN(parseFloat(toks[i]))){firstNumIdx=i;break;}}
+    let derivedRow=false;
+    for(let i=1;i<(firstNumIdx===-1?toks.length:firstNumIdx);i++){
+      const t=toks[i];
+      if(t==='-'||/^\(r\)$/i.test(t)||KARAKA_CODES.has(t.toLowerCase()))continue;
+      if(/[A-Za-z]/.test(t)){derivedRow=true;break;}
+    }
+    if(derivedRow)continue;
     let si=-1,sti=-1;
     toks.forEach((t,i)=>{if(i<1)return;const s=SIGN_S.indexOf(t);if(s!==-1&&si===-1){si=s;sti=i;}});
     if(si===-1)continue;
@@ -337,10 +359,12 @@ function fmt12h(t){
   let h12=h%12; if(h12===0)h12=12;
   return `${h12}:${min} ${suffix}`;
 }
-/* Chart cells: sort DESCENDING by degree — highest degree at the top, lowest
-   at the bottom. Reading a cell bottom-to-top then follows 0deg->30deg
-   (e.g. Cp: Me,Mo,Asc,Su,Ve top->bottom; bottom-up = Ve,Su,Asc,Mo,Me). */
-function planetsInSign(signIdx){return PDEFS.filter(p=>state.data[p.key]&&SIGNS.indexOf(state.data[p.key].sign)===signIdx).sort((a,b)=>(state.data[b.key].deg||0)-(state.data[a.key].deg||0));}
+/* Chart cells: sort ASCENDING by degree — lowest degree at the top, highest
+   at the bottom of the cell. Because absolute longitude increases sign by sign
+   around the zodiac, listing each sign low->high makes the planets read as one
+   continuous "garland" (mala) in exact circular sequence as the eye moves from
+   sign to sign (e.g. Ta: Su 0° -> Ke 7° -> Me 21°, then Ge: As 8° -> Ve 12° -> Mo 18° -> Sa 21°). */
+function planetsInSign(signIdx){return PDEFS.filter(p=>state.data[p.key]&&SIGNS.indexOf(state.data[p.key].sign)===signIdx).sort((a,b)=>(state.data[a.key].deg||0)-(state.data[b.key].deg||0));}
 
 /* House number of a planet (1-12 from Lagna) — used for the H-label only */
 function houseOf(p){
@@ -348,9 +372,9 @@ function houseOf(p){
   if(!d||li===-1)return 99;
   return(SIGNS.indexOf(d.sign)-li+12)%12+1;
 }
-/* Degree summary follows the FIXED classical graha sequence, like JHora —
-   As, Su, Mo, Ma, Me, Ju, Ve, Sa, Ra, Ke — so a planet always sits in the
-   same position and the eye finds it predictably. PDEFS is already in order. */
+/* Degree summary follows the FIXED classical graha sequence — As, Su, Mo,
+   Ma, Me, Ju, Ve, Sa, Ra, Ke — so each planet always sits in the same slot
+   and the eye finds it predictably. PDEFS is already in that order. */
 function planetsFixedOrder(){
   return PDEFS.filter(p=>state.data[p.key]);
 }
@@ -440,10 +464,11 @@ function planetEntryHTML(p){
   const kfBits=[];
   if(k)kfBits.push(`<span class="e-kar">${k}</span>`);
   tags.forEach(t=>kfBits.push(`<span class="e-flag">${t}</span>`));
-  const kf=kfBits.length?` – ${kfBits.join('-')}`:'';
-  const deg=`${dd}° ${mm}′ - ${SIGN_S[si]}`;
-  const nak=`<span class="e-nak">${np.abbr}</span>(${np.pada})`;
-  return `<span class="entry"><b class="e-name">${p.s}</b>${kf} ${deg} – ${nak}</span>`;
+  const kf=kfBits.length?` ${kfBits.join(' ')}`:'';
+  const deg=`${dd}°${mm}′ ${SIGN_S[si]}`;
+  const lordSup=state.nakLord?`<span class="e-naklord">${np.lord}</span>`:'';
+  const nak=`<span class="e-nak">${np.abbr}</span> ${np.pada}${lordSup}`;
+  return `<span class="entry"><b class="e-name">${p.s}</b>${kf} ${deg} ${nak}</span>`;
 }
 function buildDegBar(){
   const body=el('degbar-body');body.innerHTML='';
@@ -451,7 +476,7 @@ function buildDegBar(){
   if(!ordered.length){body.innerHTML='<div class="degbar-empty">No data yet — assign planets or import from JHora</div>';return;}
   const flow=document.createElement('div');flow.className='degflow';
   flow.style.color=PAL().text;
-  flow.innerHTML=ordered.map(planetEntryHTML).join('<span class="e-sep"></span>');
+  flow.innerHTML=ordered.map(planetEntryHTML).join(' ');
   body.appendChild(flow);
 }
 
@@ -577,22 +602,17 @@ function buildTableSVG(w){
   if(!ordered.length)return null;
   const ann=computeAnnotations();const kar=computeKarakas();
   const PAD=8, FS=50, LH=74;
-  // Each entry: <b>Su</b> – KAR-FLAGS DD Sgn MM – Nak(pada)  (flowing inline)
+  // Each entry (compact): Su MK <flags> DD°MM′ Sgn · Nak pada<lord>
   const entries=ordered.map(p=>{
     const d=state.data[p.key];const si=SIGNS.indexOf(d.sign);
     const dd=Math.floor(d.deg||0),mm=String(Math.floor(((d.deg||0)-dd)*60)).padStart(2,'0');
     const np=nakPada(si,d.deg||0);const tags=ann[p.key]?[...ann[p.key]]:[];const k=kar[p.key]||'';
-    const runs=[{t:p.s,w:'700',c:P.text}];   // planet abbreviation
-    if(k||tags.length){
-      runs.push({t:' – ',w:'400',c:P.num});
-      if(k)runs.push({t:k,w:'400',c:P.line});
-      tags.forEach((tg,ti)=>{
-        if(k||ti>0)runs.push({t:'-',w:'400',c:P.line});   // connector, not underlined
-        runs.push({t:tg,w:'400',c:P.line,u:true});          // flag code, underlined
-      });
-    }
-    runs.push({t:` ${dd}° ${mm}′ - ${SIGN_S[si]} – `,w:'400',c:P.text});
-    runs.push({t:`${np.abbr}(${np.pada})`,w:'400',c:P.text,i:true});  // nakshatra italic
+    const runs=[{t:p.s,w:'700',c:P.text}];   // planet abbreviation (bold)
+    if(k)runs.push({t:' '+k,w:'400',c:P.line});               // karaka, space-led
+    tags.forEach(tg=>{runs.push({t:' ',w:'400',c:P.line});runs.push({t:tg,w:'400',c:P.line,u:true});});  // flags, underlined
+    runs.push({t:` ${dd}°${mm}′ ${SIGN_S[si]} `,w:'400',c:P.text});  // rasi coord (tight)
+    runs.push({t:`${np.abbr} ${np.pada}`,w:'400',c:P.text,i:true});  // nakshatra + pada (italic)
+    if(state.nakLord)runs.push({t:np.lord,w:'700',c:P.text,sup:true});  // star lord superscript
     return {runs,plain:runs.map(r=>r.t).join('')};
   });
   // Measure real text widths with a canvas — exact, so lines fill the full width.
@@ -620,7 +640,16 @@ function buildTableSVG(w){
     const textEl=mk('text',{x:PAD,y,'text-anchor':'start','dominant-baseline':'middle','font-family':F,'font-size':FS});
     line.forEach((e,ei)=>{
       if(ei>0)textEl.appendChild(mk('tspan',{'font-weight':'400',fill:P.text,'xml:space':'preserve'},SEP));
-      e.runs.forEach(r=>{const a={'font-weight':r.w,fill:r.c};if(r.i)a['font-style']='italic';if(r.u)a['text-decoration']='underline';textEl.appendChild(mk('tspan',a,r.t));});
+      e.runs.forEach(r=>{
+        const a={'font-weight':r.w,fill:r.c};
+        if(r.i)a['font-style']='italic';
+        if(r.u)a['text-decoration']='underline';
+        if(r.sup){const upx=Math.round(FS*0.34);a['font-size']=Math.round(FS*0.62);a.dy=-upx;
+          textEl.appendChild(mk('tspan',a,r.t));
+          // zero-width restorer so the baseline returns for the next entry
+          textEl.appendChild(mk('tspan',{'font-size':Math.round(FS*0.62),dy:upx,'font-weight':'400',fill:r.c},'\u200B'));
+        }else{textEl.appendChild(mk('tspan',a,r.t));}
+      });
     });
     svg.appendChild(textEl);
   });
@@ -735,6 +764,8 @@ el('m-time').addEventListener('change',()=>{const t=v('m-time');if(t){el('m-time
 el('tog-deg').classList.toggle('on',state.degInChart);
 el('tog-deg').addEventListener('click',()=>{state.degInChart=!state.degInChart;el('tog-deg').classList.toggle('on',state.degInChart);renderAll();});
 el('tog-foot').addEventListener('click',()=>{state.footer=!state.footer;el('tog-foot').classList.toggle('on',state.footer);});
+el('tog-naklord').classList.toggle('on',state.nakLord);
+el('tog-naklord').addEventListener('click',()=>{state.nakLord=!state.nakLord;el('tog-naklord').classList.toggle('on',state.nakLord);renderAll();});
 el('tog-swap').addEventListener('click',()=>{
   state.swap=!state.swap;el('tog-swap').classList.toggle('on',state.swap);
   el('panel-south').style.order=state.swap?'2':'1';
