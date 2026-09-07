@@ -97,7 +97,7 @@ main{flex:1;overflow:auto;padding:10px 14px;display:flex;flex-direction:column;a
     <div class="ha">
       <button class="btn btn-ghost" id="btn-clear">Clear</button>
       <button class="btn btn-ghost" id="btn-settings" title="Settings">⚙ Settings</button>
-      <button class="btn btn-amber" id="btn-jhora" style="padding:5px 20px">⚡ JHora</button>
+      <button class="btn btn-amber" id="btn-jhora" style="padding:6px 30px">⚡ JHora</button>
       <button class="btn btn-ghost" id="btn-copy-jhora" title="Copy the imported JHora data to clipboard">⧉ Copy</button>
       <button class="btn btn-green" id="btn-dual-png">↓ Dual PNG</button>
       <button class="btn btn-dark" id="btn-es-png">S·PNG</button>
@@ -640,25 +640,42 @@ function buildNorthSVG(){
    Entries wrap across lines using a conservative char-width estimate only to
    decide line breaks (not glyph positions, so estimate error can't overlap).
 ──────────────────────────────────────────────────────────────────────────── */
+/* Shared row content for one planet: Su MK <flags> DD°MM′ Sgn · Nak pada<lord>
+   Used by both the wrapped multi-column table (dual export) and the
+   one-per-line sidebar list (single-chart export) below. */
+function planetEntryRuns(p){
+  const P=PAL();
+  const d=state.data[p.key];const si=SIGNS.indexOf(d.sign);
+  const dd=Math.floor(d.deg||0),mm=String(Math.floor(((d.deg||0)-dd)*60)).padStart(2,'0');
+  const np=nakPada(si,d.deg||0);
+  const ann=computeAnnotations(),kar=computeKarakas();
+  const tags=ann[p.key]?[...ann[p.key]]:[];const k=kar[p.key]||'';
+  const runs=[{t:p.s,w:'700',c:P.text}];
+  if(state.showKarakas&&k)runs.push({t:' '+k,w:'400',c:P.line});
+  tags.forEach(tg=>{runs.push({t:' ',w:'400',c:P.line});runs.push({t:tg,w:'400',c:P.line,u:true});});
+  runs.push({t:` ${dd}°${mm}′ ${SIGN_S[si]} `,w:'400',c:P.text});
+  runs.push({t:`${np.abbr} ${np.pada}`,w:'400',c:P.text,i:true});
+  if(state.nakLord)runs.push({t:np.lord,w:'700',c:P.text,sup:true});
+  return runs;
+}
+function appendRunsTspan(textEl,runs,fs){
+  runs.forEach(r=>{
+    const a={'font-weight':r.w,fill:r.c};
+    if(r.i)a['font-style']='italic';
+    if(r.u)a['text-decoration']='underline';
+    if(r.sup){const upx=Math.round(fs*0.34);a['font-size']=Math.round(fs*0.62);a.dy=-upx;
+      textEl.appendChild(mk('tspan',a,r.t));
+      // zero-width restorer so the baseline returns for whatever follows
+      textEl.appendChild(mk('tspan',{'font-size':Math.round(fs*0.62),dy:upx,'font-weight':'400',fill:r.c},'\u200B'));
+    }else{textEl.appendChild(mk('tspan',a,r.t));}
+  });
+}
 function buildTableSVG(w){
   const P=PAL();
   const ordered=planetsFixedOrder();
   if(!ordered.length)return null;
-  const ann=computeAnnotations();const kar=computeKarakas();
   const PAD=8, FS=50, LH=74;
-  // Each entry (compact): Su MK <flags> DD°MM′ Sgn · Nak pada<lord>
-  const entries=ordered.map(p=>{
-    const d=state.data[p.key];const si=SIGNS.indexOf(d.sign);
-    const dd=Math.floor(d.deg||0),mm=String(Math.floor(((d.deg||0)-dd)*60)).padStart(2,'0');
-    const np=nakPada(si,d.deg||0);const tags=ann[p.key]?[...ann[p.key]]:[];const k=kar[p.key]||'';
-    const runs=[{t:p.s,w:'700',c:P.text}];   // planet abbreviation (bold)
-    if(state.showKarakas&&k)runs.push({t:' '+k,w:'400',c:P.line});  // karaka, space-led (Settings → Jaimini Karakas)
-    tags.forEach(tg=>{runs.push({t:' ',w:'400',c:P.line});runs.push({t:tg,w:'400',c:P.line,u:true});});  // flags, underlined
-    runs.push({t:` ${dd}°${mm}′ ${SIGN_S[si]} `,w:'400',c:P.text});  // rasi coord (tight)
-    runs.push({t:`${np.abbr} ${np.pada}`,w:'400',c:P.text,i:true});  // nakshatra + pada (italic)
-    if(state.nakLord)runs.push({t:np.lord,w:'700',c:P.text,sup:true});  // star lord superscript
-    return {runs,plain:runs.map(r=>r.t).join('')};
-  });
+  const entries=ordered.map(p=>({runs:planetEntryRuns(p)}));
   // Measure real text widths with a canvas — exact, so lines fill the full width.
   const _mc=document.createElement('canvas').getContext('2d');
   const measure=(s,bold)=>{_mc.font=`${bold?'700':'400'} ${FS}px ${F}`;return _mc.measureText(s).width;};
@@ -684,21 +701,48 @@ function buildTableSVG(w){
     const textEl=mk('text',{x:PAD,y,'text-anchor':'start','dominant-baseline':'middle','font-family':F,'font-size':FS});
     line.forEach((e,ei)=>{
       if(ei>0)textEl.appendChild(mk('tspan',{'font-weight':'400',fill:P.text,'xml:space':'preserve'},SEP));
-      e.runs.forEach(r=>{
-        const a={'font-weight':r.w,fill:r.c};
-        if(r.i)a['font-style']='italic';
-        if(r.u)a['text-decoration']='underline';
-        if(r.sup){const upx=Math.round(FS*0.34);a['font-size']=Math.round(FS*0.62);a.dy=-upx;
-          textEl.appendChild(mk('tspan',a,r.t));
-          // zero-width restorer so the baseline returns for the next entry
-          textEl.appendChild(mk('tspan',{'font-size':Math.round(FS*0.62),dy:upx,'font-weight':'400',fill:r.c},'\u200B'));
-        }else{textEl.appendChild(mk('tspan',a,r.t));}
-      });
+      appendRunsTspan(textEl,e.runs,FS);
     });
     svg.appendChild(textEl);
   });
   return svg;
 }
+/* One planet per line, sized to fit within a target width/height — used for
+   the 30% detail column of a single-chart export, so entries never wrap
+   mid-line ("long tails") the way the dual export's flowing table can when
+   squeezed into a narrower width. */
+function buildSidebarSVG(w,targetH){
+  const ordered=planetsFixedOrder();
+  if(!ordered.length)return null;
+  const entries=ordered.map(p=>planetEntryRuns(p));
+  const cnt=entries.length;
+  const PADX=10,PADY=6;
+  const maxW=w-PADX*2;
+  const _mc=document.createElement('canvas').getContext('2d');
+  const measure=(s,bold,fs)=>{_mc.font=`${bold?'700':'400'} ${fs}px ${F}`;return _mc.measureText(s).width;};
+  const entryWidth=(runs,fs)=>runs.reduce((s,r)=>s+measure(r.t,r.w==='700',r.sup?Math.round(fs*0.62):fs),0);
+  let fs=46;
+  for(;fs>=20;fs-=2){
+    const lh=fs*1.5;
+    if(cnt*lh>targetH)continue;
+    const maxEW=Math.max(...entries.map(runs=>entryWidth(runs,fs)));
+    if(maxEW<=maxW)break;
+  }
+  const lh=fs*1.5;
+  const TH=cnt*lh+PADY*2;
+  const svg=document.createElementNS(NS,'svg');
+  svg.setAttribute('xmlns',NS);svg.setAttribute('width',w);svg.setAttribute('height',TH);
+  svg.setAttribute('viewBox',`0 0 ${w} ${TH}`);
+  svg.appendChild(mk('rect',{width:w,height:TH,fill:'#fff'}));
+  entries.forEach((runs,i)=>{
+    const y=PADY+i*lh+lh/2;
+    const textEl=mk('text',{x:PADX,y,'text-anchor':'start','dominant-baseline':'middle','font-family':F,'font-size':fs});
+    appendRunsTspan(textEl,runs,fs);
+    svg.appendChild(textEl);
+  });
+  return svg;
+}
+
 
 /* ══ RENDER ════════════════════════════════════════════════════════════════ */
 function replaceSVG(id,svg){const p=el(id).parentNode;svg.id=id;p.replaceChild(svg,el(id));}
@@ -724,34 +768,69 @@ function svgToPNGBlob(svgStr,pw,ph){
     img.onerror=()=>{URL.revokeObjectURL(url);rej();};img.src=url;
   });
 }
+/* Word-wraps `text` at `fs`/`bold` to fit within `maxW`, measured with the
+   given canvas context. Used by the sidebar header below, since the 30%
+   column is much narrower than a full-width header row. */
+function wrapText(mc,text,fs,bold,maxW){
+  mc.font=`${bold?'800':'400'} ${fs}px ${F}`;
+  const words=text.split(' ');
+  const lines=[];let cur='';
+  words.forEach(w=>{
+    const test=cur?cur+' '+w:w;
+    if(cur&&mc.measureText(test).width>maxW){lines.push(cur);cur=w;}
+    else cur=test;
+  });
+  if(cur)lines.push(cur);
+  return lines;
+}
+/* Name + birth details, wrapped to fit the narrow sidebar column instead of
+   a full-width row — this is what lets the single-chart export skip a
+   separate header band entirely (no extra image height). */
+function buildSideHeaderSVG(w){
+  const P=PAL();
+  const name=v('m-name')||'Chart',date=v('m-date'),time=v('m-time'),loc=v('m-loc');
+  const sub=[date,fmt12h(time),loc].filter(Boolean).join('  ·  ');
+  const PADX=10,maxW=w-PADX*2;
+  const mc=document.createElement('canvas').getContext('2d');
+  // Same font size for both lines (name bold, details regular) — matches
+  // the dual-export header style, just wrapped since this column is narrow.
+  let fs=30,nameLines=wrapText(mc,name,fs,true,maxW),subLines=sub?wrapText(mc,sub,fs,false,maxW):[];
+  while((nameLines.length>2||subLines.length>3)&&fs>18){
+    fs-=2;nameLines=wrapText(mc,name,fs,true,maxW);subLines=sub?wrapText(mc,sub,fs,false,maxW):[];
+  }
+  const lh=fs*1.3,PADY=4,GAP=6;
+  const H=PADY+nameLines.length*lh+(subLines.length?GAP+subLines.length*lh:0)+PADY;
+  const svg=document.createElementNS(NS,'svg');
+  svg.setAttribute('xmlns',NS);svg.setAttribute('width',w);svg.setAttribute('height',H);
+  svg.setAttribute('viewBox',`0 0 ${w} ${H}`);
+  svg.appendChild(mk('rect',{width:w,height:H,fill:'#fff'}));
+  let y=PADY;
+  nameLines.forEach(line=>{svg.appendChild(mk('text',{x:PADX,y:y+lh/2,'text-anchor':'start','dominant-baseline':'middle','font-family':F,'font-size':fs,'font-weight':'800',fill:P.text},line));y+=lh;});
+  if(subLines.length){y+=GAP;subLines.forEach(line=>{svg.appendChild(mk('text',{x:PADX,y:y+lh/2,'text-anchor':'start','dominant-baseline':'middle','font-family':F,'font-size':fs,'font-weight':'400',fill:P.text},line));y+=lh;});}
+  return {svg,height:H};
+}
 async function exportPNG(which){
   showToast('Rendering…');
   try{
-    const CHART=1000;const PAD=44,META_H=88,FOOT_H=state.footer?40:0;
+    const CHART=1000;const PAD=44,GAP=40,FOOT_H=state.footer?40:0;
     const P=PAL();
-    const tableW=CHART;
-    const tableSvg=buildTableSVG(tableW);
-    const tableH=tableSvg?parseInt(tableSvg.getAttribute('height')):0;
-    const tableStr=tableSvg?(()=>{injectFont(tableSvg);return(new XMLSerializer()).serializeToString(tableSvg);})():null;
-    const W=tableW+PAD*2;
-    const H=PAD+META_H+CHART+(tableH?tableH+14:0)+FOOT_H+PAD;
-    const name=v('m-name'),dv=v('m-div')||'D1',date=v('m-date'),time=v('m-time'),loc=v('m-loc');
-
-    // Same single-line header (name + division + birth details) used by the
-    // dual export, so a single-chart export never drops that context.
-    const hsvg=document.createElementNS(NS,'svg');
-    hsvg.setAttribute('xmlns',NS);hsvg.setAttribute('width',W);hsvg.setAttribute('height',META_H);
-    hsvg.setAttribute('viewBox',`0 0 ${W} ${META_H}`);
-    hsvg.appendChild(mk('rect',{width:W,height:META_H,fill:'#fff'}));
-    const hy=META_H/2-4;
-    const title=name||'Chart';
-    const sub=[date,fmt12h(time),loc].filter(Boolean).join('  ·  ');
-    const hEl=mk('text',{x:PAD,y:hy,'text-anchor':'start','dominant-baseline':'middle','font-family':F,'font-size':'50'});
-    hEl.appendChild(mk('tspan',{'font-weight':'800',fill:P.text},title));
-    if(sub)hEl.appendChild(mk('tspan',{'font-weight':'400',fill:P.text,'xml:space':'preserve'},'    '+sub));
-    hsvg.appendChild(hEl);
-    injectFont(hsvg);
-    const headSvgStr=(new XMLSerializer()).serializeToString(hsvg);
+    // 70/30 split: chart on the left, name + birth details + planetary
+    // positions all stacked in the right column — no separate full-width
+    // header row, so the image height is just the chart's own height
+    // (plus footer), never bloated.
+    const sideW=Math.round(CHART*(3/7));
+    const sideHeadSvg=buildSideHeaderSVG(sideW);
+    const sideHeadH=sideHeadSvg.height;
+    const sideHeadStr=(()=>{injectFont(sideHeadSvg.svg);return(new XMLSerializer()).serializeToString(sideHeadSvg.svg);})();
+    const SIDE_GAP=18;
+    const sideListTargetH=Math.max(200,CHART-sideHeadH-SIDE_GAP);
+    const sideSvg=buildSidebarSVG(sideW,sideListTargetH);
+    const sideH=sideSvg?parseInt(sideSvg.getAttribute('height')):0;
+    const sideStr=sideSvg?(()=>{injectFont(sideSvg);return(new XMLSerializer()).serializeToString(sideSvg);})():null;
+    const W=PAD*2+CHART+GAP+sideW;
+    const rightTotalH=sideHeadH+(sideStr?SIDE_GAP+sideH:0);
+    const H=PAD+Math.max(CHART,rightTotalH)+FOOT_H+PAD;
+    const name=v('m-name'),dv=v('m-div')||'D1';
 
     let footStr=null;
     if(state.footer){
@@ -767,18 +846,22 @@ async function exportPNG(which){
     const chartSvg=which==='south'?buildSouthSVG():buildNorthSVG();
     const chartStr=svgToStr(chartSvg);
     const SC=2;
-    const jobs=[svgToPNGBlob(chartStr,CHART*SC),svgToPNGBlob(headSvgStr,W*SC,META_H*SC)];
-    if(tableStr)jobs.push(svgToPNGBlob(tableStr,tableW*SC,tableH*SC));
+    const jobs=[svgToPNGBlob(chartStr,CHART*SC),svgToPNGBlob(sideHeadStr,sideW*SC,sideHeadH*SC)];
+    if(sideStr)jobs.push(svgToPNGBlob(sideStr,sideW*SC,sideH*SC));
     if(footStr)jobs.push(svgToPNGBlob(footStr,W*SC,FOOT_H*SC));
     const blobs=await Promise.all(jobs);
     const imgs=await Promise.all(blobs.map(b=>new Promise((r,rj)=>{const i=new Image();const u=URL.createObjectURL(b);i.onload=()=>{URL.revokeObjectURL(u);r(i);};i.onerror=()=>{URL.revokeObjectURL(u);rj();};i.src=u;})));
     const cv=document.createElement('canvas');cv.width=W*SC;cv.height=H*SC;
     const ctx=cv.getContext('2d');ctx.scale(SC,SC);ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
-    ctx.drawImage(imgs[1],0,PAD,W,META_H);
-    const chartY=PAD+META_H;
+    const chartY=PAD;
     ctx.drawImage(imgs[0],PAD,chartY,CHART,CHART);
+    // Right column: name/birth details start flush with the chart's top
+    // edge, then the planet list right below.
+    const rightX=PAD+CHART+GAP;
+    const rightY=chartY;
+    ctx.drawImage(imgs[1],rightX,rightY,sideW,sideHeadH);
     let idx=2;
-    if(tableStr){ctx.drawImage(imgs[idx],PAD,chartY+CHART+14,tableW,tableH);idx++;}
+    if(sideStr){ctx.drawImage(imgs[idx],rightX,rightY+sideHeadH+SIDE_GAP,sideW,sideH);idx++;}
     if(footStr){ctx.drawImage(imgs[idx],0,H-FOOT_H-PAD/2,W,FOOT_H);}
     cv.toBlob(b=>{
       if(!b){showToast('Export failed');return;}
@@ -800,15 +883,13 @@ async function exportDualPNG(){
     const H=PAD+META_H+CHART+(tableH?tableH+14:0)+FOOT_H+PAD;
     const name=v('m-name'),dv=v('m-div')||'D1',date=v('m-date'),time=v('m-time'),loc=v('m-loc');
 
-    // Single-line header (crisp SVG, left-indented): name + division bold,
-    // then birth details inline in lighter tone — compact, one row.
+    // Single-line header (crisp SVG, left-indented): name + birth details on
+    // one row, same font size — only the name is bold.
     const hsvg=document.createElementNS(NS,'svg');
     hsvg.setAttribute('xmlns',NS);hsvg.setAttribute('width',W);hsvg.setAttribute('height',META_H);
     hsvg.setAttribute('viewBox',`0 0 ${W} ${META_H}`);
     hsvg.appendChild(mk('rect',{width:W,height:META_H,fill:'#fff'}));
     const hy=META_H/2-4;
-    // Name (bold) + birth details (regular) as ONE text element with tspans,
-    // so the renderer flows the details right after the name — no overlap.
     const title=name||'Chart';
     const sub=[date,fmt12h(time),loc].filter(Boolean).join('  ·  ');
     const hEl=mk('text',{x:PAD,y:hy,'text-anchor':'start','dominant-baseline':'middle','font-family':F,'font-size':'50'});
