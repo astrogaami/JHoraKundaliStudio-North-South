@@ -96,7 +96,8 @@ main{flex:1;overflow:auto;padding:10px 14px;display:flex;flex-direction:column;a
     <div class="hb"><span class="logo">✦ Astrogaami</span><span class="sub">Dual Chart</span></div>
     <div class="ha">
       <button class="btn btn-ghost" id="btn-clear">Clear</button>
-      <button class="btn btn-amber" id="btn-jhora">⚡ JHora</button>
+      <button class="btn btn-ghost" id="btn-settings" title="Settings">⚙ Settings</button>
+      <button class="btn btn-amber" id="btn-jhora" style="padding:5px 20px">⚡ JHora</button>
       <button class="btn btn-ghost" id="btn-copy-jhora" title="Copy the imported JHora data to clipboard">⧉ Copy</button>
       <button class="btn btn-green" id="btn-dual-png">↓ Dual PNG</button>
       <button class="btn btn-dark" id="btn-es-png">S·PNG</button>
@@ -154,6 +155,17 @@ main{flex:1;overflow:auto;padding:10px 14px;display:flex;flex-direction:column;a
       <div class="mfoot">
         <button class="mcancel" id="mcan">Cancel</button>
         <button class="btn btn-dark" id="bparse">Populate →</button>
+      </div>
+    </div>
+  </div>
+  <div class="moverlay" id="settingsModal" style="display:none">
+    <div class="mbox">
+      <div class="mhead">
+        <div><div class="mt">Settings</div><div class="ms">Display preferences</div></div>
+        <button class="mcls" id="settingsCls">✕</button>
+      </div>
+      <div class="mbody">
+        <div class="opt-toggle" id="tog-karakas" title="Show Jaimini Chara Karakas (AK/AmK/BK/MK/PK/GK/DK) in the position summary">⚹ Jaimini Karakas</div>
       </div>
     </div>
   </div>
@@ -272,7 +284,7 @@ const PDEFS=[
   {key:'ketu',    s:'Ke', label:'Ketu',       ppbg:'#E2E8F0',ppfg:'#1E293B'},
 ];
 
-let state={data:{},selectedPlanet:null,degInChart:false,footer:false,swap:false,nakLord:true,rawJhora:''};
+let state={data:{},selectedPlanet:null,degInChart:false,footer:false,swap:false,nakLord:true,showKarakas:false,rawJhora:''};
 PDEFS.forEach(p=>state.data[p.key]=null);
 
 const el=id=>document.getElementById(id);
@@ -463,7 +475,7 @@ function planetEntryHTML(p){
   const k=kar[p.key]||'';
   // Build the karaka-flags segment
   const kfBits=[];
-  if(k)kfBits.push(`<span class="e-kar">${k}</span>`);
+  if(state.showKarakas&&k)kfBits.push(`<span class="e-kar">${k}</span>`);
   tags.forEach(t=>kfBits.push(`<span class="e-flag">${t}</span>`));
   const kf=kfBits.length?` ${kfBits.join(' ')}`:'';
   const deg=`${dd}°${mm}′ ${SIGN_S[si]}`;
@@ -499,14 +511,45 @@ function screenSz(){
   const W=(window.innerWidth-184-28-14)/2-12;
   return Math.max(180,Math.min(H,W,360));
 }
-function pLabel(p){
-  // Ascendant shown as -As- so it's visually distinct from the grahas in a cell
+/* Estimated character length of a cell label, for the shrink-to-fit sizing
+   loop only (never rendered as-is). Mirrors what appendPlanetLabel() below
+   will actually draw, so the auto-sized font never clips or overlaps. */
+function estLabelLen(p){
   const nm=p.key==='lagna'?`-${p.s}-`:p.s;
-  if(!state.degInChart)return nm;
-  const d=state.data[p.key],deg=d.deg;
-  if(deg==null)return nm;
-  const dd=Math.floor(deg),mm=Math.floor((deg-dd)*60);
-  return`${nm} ${dd}°${String(mm).padStart(2,'0')}′`;
+  const d=state.data[p.key],deg=d?d.deg:null;
+  if(deg==null)return nm.length;
+  if(state.degInChart){
+    const dd=Math.floor(deg),mm=Math.floor((deg-dd)*60);
+    return`${nm} ${dd}°${String(mm).padStart(2,'0')}′`.length;
+  }
+  // Degree-only superscript renders smaller, so it costs roughly 0.6 of a
+  // full-size character per digit (1 digit for 0-9°, 2 digits for 10-29°).
+  return nm.length+String(Math.floor(deg)).length*0.6;
+}
+/* Renders one planet's cell label as a single <text> made of tspans:
+   the graha abbreviation at full size, plus its whole-degree number
+   (minutes dropped) as a small superscript in the palette's subdued
+   "num" tone — a quiet, print-friendly cue for reading degree order at
+   a glance. When the "°Deg" toggle is on, the precise degree+minutes are
+   shown inline instead (unchanged, higher-detail mode). */
+function appendPlanetLabel(svg,p,x,y,fs,anchor){
+  const P=PAL();
+  const nm=p.key==='lagna'?`-${p.s}-`:p.s;
+  const t=mk('text',{x,y,'text-anchor':anchor,'dominant-baseline':'middle','font-family':F,'font-size':fs,'font-weight':'700',fill:P.text});
+  t.appendChild(mk('tspan',{},nm));
+  const d=state.data[p.key],deg=d?d.deg:null;
+  if(deg!=null){
+    if(state.degInChart){
+      const dd=Math.floor(deg),mm=Math.floor((deg-dd)*60);
+      t.appendChild(mk('tspan',{'font-size':Math.round(fs*0.7),'font-weight':'600',fill:P.text},` ${dd}°${String(mm).padStart(2,'0')}′`));
+    }else{
+      const dd=Math.floor(deg);
+      const supFs=Math.max(9,Math.round(fs*0.55));
+      const upx=Math.round(fs*0.32);
+      t.appendChild(mk('tspan',{'font-size':supFs,'font-weight':'700',fill:P.num,dy:-upx},String(dd)));
+    }
+  }
+  svg.appendChild(t);
 }
 
 /* ── SOUTH INDIAN ──────────────────────────────────────────────────────── */
@@ -533,9 +576,9 @@ function buildSouthSVG(){
     const planets=planetsInSign(si);const cnt=planets.length;if(!cnt)return;
     const PAD=16;const usableW=CS-PAD*2,usableH=CS-PAD*2;
     let fs=state.degInChart?28:(cnt<=2?50:cnt<=3?44:cnt<=5?36:30);
-    for(;fs>=14;fs--){const stackH=cnt*fs*1.18;const maxChars=Math.max(...planets.map(p=>pLabel(p).length));const estW=maxChars*fs*0.58;if(stackH<=usableH&&estW<=usableW)break;}
+    for(;fs>=14;fs--){const stackH=cnt*fs*1.18;const maxChars=Math.max(...planets.map(p=>estLabelLen(p)));const estW=maxChars*fs*0.58;if(stackH<=usableH&&estW<=usableW)break;}
     const lineH=fs*1.18,totalH=cnt*lineH;const startY=cy+PAD+fs*0.55+(usableH-totalH)/2;
-    planets.forEach((p,pi)=>{svg.appendChild(mk('text',{x:cx+PAD,y:startY+pi*lineH,'text-anchor':'start','dominant-baseline':'middle','font-family':F,'font-size':fs,'font-weight':'700',fill:P.text},pLabel(p)));});
+    planets.forEach((p,pi)=>{appendPlanetLabel(svg,p,cx+PAD,startY+pi*lineH,fs,'start');});
   });
   return svg;
 }
@@ -583,9 +626,9 @@ function buildNorthSVG(){
     const hcx=c[0]*V,hcy=c[1]*V;const isKite=[0,3,6,9].includes(i);
     const availW=(isKite?0.24:0.20)*V;const availH=(isKite?0.22:0.16)*V;
     let fs=state.degInChart?26:(cnt<=2?48:cnt<=3?42:cnt<=5?34:28);
-    for(;fs>=14;fs--){const stackH=cnt*fs*1.16;const maxChars=Math.max(...planets.map(p=>pLabel(p).length));const estW=maxChars*fs*0.58;if(stackH<=availH*1.7&&estW<=availW*1.6)break;}
+    for(;fs>=14;fs--){const stackH=cnt*fs*1.16;const maxChars=Math.max(...planets.map(p=>estLabelLen(p)));const estW=maxChars*fs*0.58;if(stackH<=availH*1.7&&estW<=availW*1.6)break;}
     const lineH=fs*1.16,totalH=cnt*lineH,startY=hcy-totalH/2+lineH/2;
-    planets.forEach((p,pi)=>{svg.appendChild(mk('text',{x:hcx,y:startY+pi*lineH,'text-anchor':'middle','dominant-baseline':'middle','font-family':F,'font-size':fs,'font-weight':'700',fill:P.text},pLabel(p)));});
+    planets.forEach((p,pi)=>{appendPlanetLabel(svg,p,hcx,startY+pi*lineH,fs,'middle');});
   });
   return svg;
 }
@@ -609,7 +652,7 @@ function buildTableSVG(w){
     const dd=Math.floor(d.deg||0),mm=String(Math.floor(((d.deg||0)-dd)*60)).padStart(2,'0');
     const np=nakPada(si,d.deg||0);const tags=ann[p.key]?[...ann[p.key]]:[];const k=kar[p.key]||'';
     const runs=[{t:p.s,w:'700',c:P.text}];   // planet abbreviation (bold)
-    if(k)runs.push({t:' '+k,w:'400',c:P.line});               // karaka, space-led
+    if(state.showKarakas&&k)runs.push({t:' '+k,w:'400',c:P.line});  // karaka, space-led (Settings → Jaimini Karakas)
     tags.forEach(tg=>{runs.push({t:' ',w:'400',c:P.line});runs.push({t:tg,w:'400',c:P.line,u:true});});  // flags, underlined
     runs.push({t:` ${dd}°${mm}′ ${SIGN_S[si]} `,w:'400',c:P.text});  // rasi coord (tight)
     runs.push({t:`${np.abbr} ${np.pada}`,w:'400',c:P.text,i:true});  // nakshatra + pada (italic)
@@ -682,12 +725,67 @@ function svgToPNGBlob(svgStr,pw,ph){
   });
 }
 async function exportPNG(which){
+  showToast('Rendering…');
   try{
-    const svg=which==='south'?buildSouthSVG():buildNorthSVG();
-    const lbl=(which==='south'?'South':'North')+'_'+(v('m-name')||'Chart')+'_'+(v('m-div')||'D1');
-    const blob=await svgToPNGBlob(svgToStr(svg),2000);
-    dlBlob(blob,lbl+'_'+Date.now()+'.png');showToast('PNG exported (2000px) ✓');
-  }catch(e){showToast('Export failed');}
+    const CHART=1000;const PAD=44,META_H=88,FOOT_H=state.footer?40:0;
+    const P=PAL();
+    const tableW=CHART;
+    const tableSvg=buildTableSVG(tableW);
+    const tableH=tableSvg?parseInt(tableSvg.getAttribute('height')):0;
+    const tableStr=tableSvg?(()=>{injectFont(tableSvg);return(new XMLSerializer()).serializeToString(tableSvg);})():null;
+    const W=tableW+PAD*2;
+    const H=PAD+META_H+CHART+(tableH?tableH+14:0)+FOOT_H+PAD;
+    const name=v('m-name'),dv=v('m-div')||'D1',date=v('m-date'),time=v('m-time'),loc=v('m-loc');
+
+    // Same single-line header (name + division + birth details) used by the
+    // dual export, so a single-chart export never drops that context.
+    const hsvg=document.createElementNS(NS,'svg');
+    hsvg.setAttribute('xmlns',NS);hsvg.setAttribute('width',W);hsvg.setAttribute('height',META_H);
+    hsvg.setAttribute('viewBox',`0 0 ${W} ${META_H}`);
+    hsvg.appendChild(mk('rect',{width:W,height:META_H,fill:'#fff'}));
+    const hy=META_H/2-4;
+    const title=name||'Chart';
+    const sub=[date,fmt12h(time),loc].filter(Boolean).join('  ·  ');
+    const hEl=mk('text',{x:PAD,y:hy,'text-anchor':'start','dominant-baseline':'middle','font-family':F,'font-size':'50'});
+    hEl.appendChild(mk('tspan',{'font-weight':'800',fill:P.text},title));
+    if(sub)hEl.appendChild(mk('tspan',{'font-weight':'400',fill:P.text,'xml:space':'preserve'},'    '+sub));
+    hsvg.appendChild(hEl);
+    injectFont(hsvg);
+    const headSvgStr=(new XMLSerializer()).serializeToString(hsvg);
+
+    let footStr=null;
+    if(state.footer){
+      const fsvg=document.createElementNS(NS,'svg');
+      fsvg.setAttribute('xmlns',NS);fsvg.setAttribute('width',W);fsvg.setAttribute('height',FOOT_H);
+      fsvg.setAttribute('viewBox',`0 0 ${W} ${FOOT_H}`);
+      fsvg.appendChild(mk('rect',{width:W,height:FOOT_H,fill:'#fff'}));
+      fsvg.appendChild(mk('text',{x:W/2,y:FOOT_H/2,'text-anchor':'middle','dominant-baseline':'middle','font-family':F,'font-size':'18','font-weight':'600',fill:P.num},'astrogaami.com'));
+      injectFont(fsvg);
+      footStr=(new XMLSerializer()).serializeToString(fsvg);
+    }
+
+    const chartSvg=which==='south'?buildSouthSVG():buildNorthSVG();
+    const chartStr=svgToStr(chartSvg);
+    const SC=2;
+    const jobs=[svgToPNGBlob(chartStr,CHART*SC),svgToPNGBlob(headSvgStr,W*SC,META_H*SC)];
+    if(tableStr)jobs.push(svgToPNGBlob(tableStr,tableW*SC,tableH*SC));
+    if(footStr)jobs.push(svgToPNGBlob(footStr,W*SC,FOOT_H*SC));
+    const blobs=await Promise.all(jobs);
+    const imgs=await Promise.all(blobs.map(b=>new Promise((r,rj)=>{const i=new Image();const u=URL.createObjectURL(b);i.onload=()=>{URL.revokeObjectURL(u);r(i);};i.onerror=()=>{URL.revokeObjectURL(u);rj();};i.src=u;})));
+    const cv=document.createElement('canvas');cv.width=W*SC;cv.height=H*SC;
+    const ctx=cv.getContext('2d');ctx.scale(SC,SC);ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+    ctx.drawImage(imgs[1],0,PAD,W,META_H);
+    const chartY=PAD+META_H;
+    ctx.drawImage(imgs[0],PAD,chartY,CHART,CHART);
+    let idx=2;
+    if(tableStr){ctx.drawImage(imgs[idx],PAD,chartY+CHART+14,tableW,tableH);idx++;}
+    if(footStr){ctx.drawImage(imgs[idx],0,H-FOOT_H-PAD/2,W,FOOT_H);}
+    cv.toBlob(b=>{
+      if(!b){showToast('Export failed');return;}
+      const lbl=(which==='south'?'South':'North')+'_'+(name||'Chart')+'_'+dv;
+      dlBlob(b,lbl+'_'+Date.now()+'.png');showToast('PNG exported ✓');
+    },'image/png');
+  }catch(e){console.error(e);showToast('Export failed');}
 }
 async function exportDualPNG(){
   showToast('Rendering…');
@@ -767,6 +865,13 @@ el('tog-deg').addEventListener('click',()=>{state.degInChart=!state.degInChart;e
 el('tog-foot').addEventListener('click',()=>{state.footer=!state.footer;el('tog-foot').classList.toggle('on',state.footer);});
 el('tog-naklord').classList.toggle('on',state.nakLord);
 el('tog-naklord').addEventListener('click',()=>{state.nakLord=!state.nakLord;el('tog-naklord').classList.toggle('on',state.nakLord);renderAll();});
+el('tog-karakas').classList.toggle('on',state.showKarakas);
+el('tog-karakas').addEventListener('click',()=>{state.showKarakas=!state.showKarakas;el('tog-karakas').classList.toggle('on',state.showKarakas);renderAll();});
+const openSettings=()=>{el('settingsModal').style.display='flex';};
+const closeSettings=()=>{el('settingsModal').style.display='none';};
+el('btn-settings').addEventListener('click',openSettings);
+el('settingsCls').addEventListener('click',closeSettings);
+el('settingsModal').addEventListener('click',e=>{if(e.target===el('settingsModal'))closeSettings();});
 el('tog-swap').addEventListener('click',()=>{
   state.swap=!state.swap;el('tog-swap').classList.toggle('on',state.swap);
   el('panel-south').style.order=state.swap?'2':'1';
@@ -831,7 +936,7 @@ el('btn-copy-jhora').addEventListener('click',()=>{
 el('btn-en-png').addEventListener('click',()=>exportPNG('north'));
 el('btn-dual-png').addEventListener('click',exportDualPNG);
 el('modal').addEventListener('click',e=>{if(e.target===el('modal'))closeM();});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeM();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeM();closeSettings();}});
 buildPalette();buildSidebar();renderAll();
 </script>
 </body>
